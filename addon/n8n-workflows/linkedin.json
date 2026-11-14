@@ -1,0 +1,365 @@
+{
+  "name": "Suite - AI post to linkedin",
+  "nodes": [
+    {
+      "id": "72b3b480-a0ab-44c8-8785-0aac019cd0e9",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "0ea057b5-3a2c-442f-bb21-3657c350a15c",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "disabled": true
+    },
+    {
+      "id": "66868cc4-d045-4605-a3f2-a9fbcf494e99",
+      "name": "Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        100
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "33f5f65f-7c69-4832-a175-c71173540ae0",
+              "name": "suite_url",
+              "value": "http://suite:8080",
+              "type": "string"
+            },
+            {
+              "id": "5e576a7b-9f66-403a-8995-c7505f9b1962",
+              "name": "account_id",
+              "value": "PASTE_SOCIAL_ACCOUNT_ID",
+              "type": "string"
+            },
+            {
+              "id": "5fdad983-e5f6-44ea-8a3d-f5732af3e8a8",
+              "name": "provider_id",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "7d4ea5b0-af21-41ec-b30a-9da5c844bd3f",
+              "name": "model",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "ebf963f8-f99c-45a0-8c6e-3c90fab1dc0b",
+              "name": "topic",
+              "value": "Tips for growing a small business online",
+              "type": "string"
+            },
+            {
+              "id": "560b65c7-89ad-45ae-896e-8565aa7781b0",
+              "name": "tone",
+              "value": "friendly and concise",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "147ce24d-9fcf-4376-8652-207d1759ad42",
+      "name": "Generate content (LLM)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.suite_url }}/api/n8n/generate",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ prompt: \"Write a \" + $json.tone + \" \" + \"linkedin\" + \" post about: \" + $json.topic + \". Output only the post text.\", provider_id: $json.provider_id, model: $json.model, system: \"You are a social media copywriter.\" }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Suite Add-on Token"
+        }
+      }
+    },
+    {
+      "id": "08e56aa4-d8dd-45be-b62f-dd2aff096c9b",
+      "name": "Format for linkedin",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        100
+      ],
+      "parameters": {
+        "jsCode": "const LIMIT = 3000;\nlet text = String($input.first().json.text || '').trim().replace(/\\n{3,}/g, '\\n\\n');\nif (text.length > LIMIT) text = text.slice(0, LIMIT - 1).trimEnd() + '\\u2026';\nconst title = text.split('\\n')[0].slice(0, 100);\nreturn [{ json: { text, title, provider: $input.first().json.provider, model: $input.first().json.model } }];"
+      }
+    },
+    {
+      "id": "33dc5193-2d00-41d7-a8b8-4f7b50195d29",
+      "name": "Queue publish job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parameters').item.json.suite_url }}/api/n8n/jobs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ task: \"social_publish\", workflow: \"n8n:linkedin\", payload: Object.assign({ account_id: $('Parameters').item.json.account_id, text: $json.text, raw: true }, {}) }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Suite Add-on Token"
+        }
+      }
+    },
+    {
+      "id": "430038e6-6cd9-4083-a23e-213b01f71c7e",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        100
+      ],
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "3e179fb7-c8fc-47eb-bb8a-9fe6616c2757",
+      "name": "Get job status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        100
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Parameters').item.json.suite_url }}/api/n8n/jobs/{{ $('Queue publish job').item.json.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Suite Add-on Token"
+        }
+      }
+    },
+    {
+      "id": "8cf54e31-0f07-4a6e-abb0-8a5a805114e2",
+      "name": "Finished?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "901a761c-c5f7-4d30-88a9-29a7e52d6a70",
+              "leftValue": "={{ ['completed','failed','cancelled'].includes($json.status) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f9b4c069-d384-452c-ae80-d882b8e61494",
+      "name": "Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parameters": {
+      "main": [
+        [
+          {
+            "node": "Generate content (LLM)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate content (LLM)": {
+      "main": [
+        [
+          {
+            "node": "Format for linkedin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format for linkedin": {
+      "main": [
+        [
+          {
+            "node": "Queue publish job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue publish job": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Get job status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get job status": {
+      "main": [
+        [
+          {
+            "node": "Finished?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finished?": {
+      "main": [
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Africa/Lagos",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "pinData": {},
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

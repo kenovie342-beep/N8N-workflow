@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Automation Suite</title>
+<style>
+:root{--bg:#f4f5f2;--panel:#fff;--ink:#1c2321;--mute:#66706b;--line:#d9ddd7;--acc:#0f5c4d;--accx:#0b463b;--bad:#a8322a;--warn:#946200;--ok:#1b6e3a;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+@media(prefers-color-scheme:dark){:root{--bg:#141816;--panel:#1c211e;--ink:#e8ece9;--mute:#95a09a;--line:#2e3631;--acc:#4cc2a5;--accx:#6fd3ba;--bad:#ef7d74;--warn:#e0b04a;--ok:#62c987}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Segoe UI",system-ui,sans-serif}
+header{display:flex;align-items:center;gap:1rem;padding:.7rem 1.2rem;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+header h1{font-size:1rem;margin:0;font-weight:700;letter-spacing:.2px}nav{display:flex;gap:.2rem;flex-wrap:wrap;flex:1}
+nav button{background:none;border:0;padding:.45rem .75rem;border-radius:6px;color:var(--mute);cursor:pointer;font:inherit}
+nav button.on{background:var(--acc);color:#fff}main{max-width:1150px;margin:0 auto;padding:1.2rem}
+h2{font-size:1.15rem;margin:.2rem 0 1rem}h3{font-size:.95rem;margin:1.2rem 0 .5rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.8rem}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.9rem 1rem;margin-bottom:1rem}
+.stat b{display:block;font-size:1.7rem;line-height:1.1;font-variant-numeric:tabular-nums}.stat span{color:var(--mute);font-size:.82rem}
+table{width:100%;border-collapse:collapse;font-size:.88rem}th,td{text-align:left;padding:.45rem .5rem;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--mute);font-weight:600}
+.tw{overflow-x:auto}.pill{display:inline-block;padding:.05rem .5rem;border-radius:99px;font-size:.78rem;border:1px solid currentColor}
+.s-completed,.s-ok{color:var(--ok)}.s-failed{color:var(--bad)}.s-running{color:var(--acc)}.s-queued{color:var(--warn)}.s-cancelled{color:var(--mute)}
+input,select,textarea{font:inherit;padding:.45rem .55rem;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);width:100%}
+label{display:block;font-size:.8rem;color:var(--mute);margin:.5rem 0 .15rem}.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.8rem}
+button.b{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:.45rem .9rem;cursor:pointer;font:inherit}button.b:hover{background:var(--accx)}
+button.g{background:none;border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:.25rem .6rem;cursor:pointer;font:inherit;font-size:.82rem;margin-right:.25rem}
+button.d{color:var(--bad)}pre{background:var(--bg);border:1px solid var(--line);padding:.6rem;border-radius:6px;overflow:auto;max-height:260px;font:12px/1.45 var(--mono);white-space:pre-wrap}
+.msg{padding:.5rem .7rem;border-radius:6px;margin:.6rem 0;font-size:.88rem;border:1px solid var(--line)}.msg.bad{color:var(--bad)}.msg.ok{color:var(--ok)}
+.mute{color:var(--mute)}.login{max-width:340px;margin:12vh auto}.hint{font-size:.78rem;color:var(--mute);margin-top:.2rem}
+</style></head><body><div id="app"></div>
+<script>
+let CSRF = null;
+const $ = (s, r = document) => r.querySelector(s);
+function h(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (k === "class") e.className = v; else if (v !== false && v != null) e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false) e.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  return e;
+}
+async function api(path, opts = {}) {
+  const r = await fetch("/api" + path, { method: opts.method || "GET", credentials: "same-origin",
+    headers: { "Content-Type": "application/json", ...(CSRF ? { "X-CSRF-Token": CSRF } : {}) }, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  const t = await r.text(); let d; try { d = t ? JSON.parse(t) : {}; } catch { d = { detail: t }; }
+  if (r.status === 401 && !path.startsWith("/auth/login")) { CSRF = null; render(); throw new Error("Session expired"); }
+  if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : JSON.stringify(d.detail || d));
+  return d;
+}
+const fmt = (s) => s ? new Date(s).toLocaleString() : "";
+const pill = (s) => h("span", { class: "pill s-" + s }, s);
+let tab = "dashboard", timer = null;
+const TABS = [["dashboard", "Dashboard"], ["jobs", "Jobs"], ["schedules", "Schedules"], ["llm", "AI Providers"], ["social", "Social Accounts"], ["integrations", "GitHub & Cloudflare"], ["settings", "Settings"]];
+function flash(el, text, ok) { el.replaceChildren(h("div", { class: "msg " + (ok ? "ok" : "bad") }, text)); }
+async function guard(el, fn) { try { await fn(); } catch (e) { flash(el, e.message, false); } }
+
+async function render() {
+  clearInterval(timer);
+  const root = $("#app"); root.replaceChildren();
+  if (!CSRF) {
+    try { CSRF = (await api("/auth/me")).csrf; } catch { return loginView(root); }
+  }
+  root.append(h("header", {}, h("h1", {}, "Automation Suite"),
+    h("nav", {}, TABS.map(([k, l]) => h("button", { class: k === tab ? "on" : "", onclick: () => { tab = k; render(); } }, l))),
+    h("button", { class: "g", onclick: async () => { await api("/auth/logout", { method: "POST" }); CSRF = null; render(); } }, "Sign out")));
+  const main = h("main"); root.append(main);
+  ({ dashboard, jobs: jobsView, schedules, llm, social, integrations, settings: settingsView })[tab](main);
+}
+function loginView(root) {
+  const out = h("div");
+  const u = h("input", { value: "admin", autocomplete: "username" }), p = h("input", { type: "password", autocomplete: "current-password" });
+  const go = () => guard(out, async () => { CSRF = (await api("/auth/login", { method: "POST", body: { username: u.value, password: p.value } })).csrf; render(); });
+  p.addEventListener("keydown", (e) => e.key === "Enter" && go());
+  root.append(h("div", { class: "login card" }, h("h2", {}, "Sign in"), h("label", {}, "Username"), u, h("label", {}, "Password"), p, h("p", {}, h("button", { class: "b", onclick: go }, "Sign in")), out));
+}
+/* ---------------- dashboard ---------------- */
+function dashboard(main) {
+  const box = h("div"); main.append(h("h2", {}, "Job monitor"), box);
+  const load = () => guard(box, async () => {
+    const s = await api("/stats");
+    box.replaceChildren(
+      h("div", { class: "grid" }, [["Total", s.total], ["Running", s.running + " / " + s.max_concurrency], ["Queued", s.queued], ["Completed", s.completed], ["Failed", s.failed], ["Avg duration", s.avg_duration_seconds == null ? "-" : s.avg_duration_seconds + "s"]]
+        .map(([l, v]) => h("div", { class: "card stat" }, h("b", {}, v), h("span", {}, l)))),
+      h("h3", {}, "Recent activity"), jobTable(s.recent, load));
+  });
+  load(); timer = setInterval(load, 3000);
+}
+function jobTable(list, reload) {
+  if (!list.length) return h("p", { class: "mute" }, "No jobs yet.");
+  return h("div", { class: "card tw" }, h("table", {}, h("thead", {}, h("tr", {}, ["Task", "Workflow", "Status", "Attempts", "Created", "Duration", ""].map((x) => h("th", {}, x)))),
+    h("tbody", {}, list.map((j) => h("tr", {}, h("td", {}, j.task), h("td", {}, j.workflow), h("td", {}, pill(j.status), j.error && j.status !== "completed" ? h("div", { class: "hint" }, j.error.slice(0, 120)) : null),
+      h("td", {}, j.attempts + "/" + j.max_attempts), h("td", {}, fmt(j.created_at)), h("td", {}, j.duration_seconds == null ? "" : j.duration_seconds + "s"),
+      h("td", {}, h("button", { class: "g", onclick: () => detail(j.id) }, "Details"),
+        ["queued", "running"].includes(j.status) ? h("button", { class: "g d", onclick: async () => { await api(`/jobs/${j.id}/cancel`, { method: "POST" }); reload(); } }, "Cancel") : null,
+        ["failed", "cancelled"].includes(j.status) ? h("button", { class: "g", onclick: async () => { await api(`/jobs/${j.id}/retry`, { method: "POST" }); reload(); } }, "Retry") : null))))));
+}
+async function detail(id) {
+  const d = await api("/jobs/" + id);
+  const dlg = h("div", { class: "card" }, h("h3", {}, "Job " + id), pill(d.status),
+    h("p", { class: "mute" }, `${d.task} - executor ${d.executor} - attempts ${d.attempts}/${d.max_attempts}`),
+    d.error ? h("div", { class: "msg bad" }, d.error) : null, h("h3", {}, "Result"), h("pre", {}, JSON.stringify(d.result, null, 2)),
+    h("h3", {}, "Payload (secrets masked)"), h("pre", {}, JSON.stringify(d.payload, null, 2)), h("h3", {}, "Logs"),
+    h("pre", {}, d.logs.map((l) => `${fmt(l.ts)} [${l.level}] ${l.message}`).join("\n") || "No logs"),
+    d.executor === "github" ? h("p", {}, h("button", { class: "g", onclick: async (e) => { try { const r = await api(`/jobs/${id}/remote-logs`); e.target.parentElement.after(h("pre", {}, r.logs)); } catch (er) { alert(er.message); } } }, "Fetch GitHub run logs")) : null,
+    h("button", { class: "b", onclick: () => dlg.remove() }, "Close"));
+  $("main").prepend(dlg); dlg.scrollIntoView();
+}
+async function jobsView(main) {
+  const out = h("div"), list = h("div"), st = h("select", {}, ["", "queued", "running", "completed", "failed", "cancelled"].map((x) => h("option", { value: x }, x || "all statuses")));
+  const task = h("select", {}, ["noop", "sleep", "llm_prompt", "social_publish", "ai_publish", "github_job"].map((x) => h("option", {}, x)));
+  const payload = h("textarea", { rows: 4 }, '{"seconds": 2}');
+  const load = () => guard(out, async () => list.replaceChildren(jobTable(await api("/jobs?limit=200" + (st.value ? "&status=" + st.value : "")), load)));
+  st.addEventListener("change", load);
+  main.append(h("h2", {}, "Jobs"), h("div", { class: "card" }, h("h3", {}, "Submit a job"), h("div", { class: "row" }, h("div", {}, h("label", {}, "Task"), task), h("div", {}, h("label", {}, "Filter"), st)),
+    h("label", {}, "Payload (JSON)"), payload, h("p", {}, h("button", { class: "b", onclick: () => guard(out, async () => { await api("/jobs", { method: "POST", body: { task: task.value, payload: JSON.parse(payload.value || "{}") } }); load(); }) }, "Queue job"))), out, list);
+  load(); timer = setInterval(load, 3000);
+}
+/* ---------------- schedules ---------------- */
+async function schedules(main) {
+  const out = h("div"), tbl = h("div"), up = h("div"), runs = h("div");
+  const f = { name: h("input"), task: h("select", {}, ["noop", "llm_prompt", "social_publish", "ai_publish", "github_job"].map((x) => h("option", {}, x))),
+    kind: h("select", {}, ["cron", "once", "interval"].map((x) => h("option", {}, x))), cron: h("input", { value: "0 9 * * *" }), runat: h("input", { type: "datetime-local" }),
+    interval: h("input", { type: "number", value: 3600 }), tz: h("input", { value: "Africa/Lagos" }), payload: h("textarea", { rows: 3 }, "{}") };
+  let editing = null;
+  const reset = () => { editing = null; f.name.value = ""; };
+  const save = () => guard(out, async () => {
+    const body = { name: f.name.value, task: f.task.value, kind: f.kind.value, cron_expr: f.kind.value === "cron" ? f.cron.value : "", timezone: f.tz.value,
+      interval_seconds: f.kind.value === "interval" ? +f.interval.value : 0, run_at: f.kind.value === "once" ? f.runat.value : null, payload: JSON.parse(f.payload.value || "{}") };
+    await api(editing ? "/schedules/" + editing : "/schedules", { method: editing ? "PUT" : "POST", body }); reset(); load(); flash(out, "Saved", true);
+  });
+  const load = () => guard(out, async () => {
+    const s = await api("/schedules"), u = await api("/schedules/upcoming");
+    tbl.replaceChildren(h("div", { class: "card tw" }, h("table", {}, h("thead", {}, h("tr", {}, ["Name", "Task", "When", "Timezone", "Next run", "State", ""].map((x) => h("th", {}, x)))),
+      h("tbody", {}, s.map((x) => h("tr", {}, h("td", {}, x.name), h("td", {}, x.task), h("td", {}, x.kind === "cron" ? x.cron_expr : x.kind === "once" ? fmt(x.run_at) : `every ${x.interval_seconds}s`), h("td", {}, x.timezone),
+        h("td", {}, fmt(x.next_run_at)), h("td", {}, pill(x.enabled ? "ok" : "cancelled"), " ", x.enabled ? "active" : "paused"),
+        h("td", {}, h("button", { class: "g", onclick: () => { editing = x.id; f.name.value = x.name; f.task.value = x.task; f.kind.value = x.kind; f.cron.value = x.cron_expr || "0 9 * * *"; f.tz.value = x.timezone; f.interval.value = x.interval_seconds || 3600; f.payload.value = JSON.stringify(x.payload); scrollTo(0, 0); } }, "Edit"),
+          h("button", { class: "g", onclick: async () => { await api(`/schedules/${x.id}/${x.enabled ? "pause" : "resume"}`, { method: "POST" }); load(); } }, x.enabled ? "Pause" : "Resume"),
+          h("button", { class: "g", onclick: async () => { await api(`/schedules/${x.id}/run-now`, { method: "POST" }); flash(out, "Queued", true); } }, "Run now"),
+          h("button", { class: "g", onclick: async () => { runs.replaceChildren(h("h3", {}, "Previous executions: " + x.name), jobTable(await api(`/schedules/${x.id}/runs`), () => {})); } }, "History"),
+          h("button", { class: "g d", onclick: async () => { if (confirm("Delete schedule?")) { await api("/schedules/" + x.id, { method: "DELETE" }); load(); } } }, "Delete"))))))));
+    up.replaceChildren(h("div", { class: "card tw" }, h("table", {}, h("thead", {}, h("tr", {}, ["Schedule", "Local time", "UTC"].map((x) => h("th", {}, x)))),
+      h("tbody", {}, u.map((x) => h("tr", {}, h("td", {}, x.name), h("td", {}, x.at_local.replace("T", " ").slice(0, 16) + " " + x.timezone), h("td", {}, x.at_utc.replace("T", " ").slice(0, 16))))))));
+  });
+  main.append(h("h2", {}, "Schedules"), h("div", { class: "card" }, h("h3", {}, "Create / edit schedule"), h("div", { class: "row" }, h("div", {}, h("label", {}, "Name"), f.name), h("div", {}, h("label", {}, "Task"), f.task), h("div", {}, h("label", {}, "Type"), f.kind), h("div", {}, h("label", {}, "Timezone"), f.tz)),
+    h("div", { class: "row" }, h("div", {}, h("label", {}, "Cron (min hour dom mon dow)"), f.cron), h("div", {}, h("label", {}, "One-time date/time (in timezone)"), f.runat), h("div", {}, h("label", {}, "Interval seconds (min 30)"), f.interval)),
+    h("label", {}, "Payload (JSON)"), f.payload, h("p", {}, h("button", { class: "b", onclick: save }, "Save schedule"), " ", h("button", { class: "g", onclick: reset }, "Clear"))), out,
+    h("h3", {}, "Schedules"), tbl, h("h3", {}, "Upcoming executions"), up, runs);
+  load();
+}
+/* ---------------- LLM providers ---------------- */
+async function llm(main) {
+  const out = h("div"), tbl = h("div"); const meta = await api("/settings/llm/providers");
+  const f = { name: h("input", { placeholder: "My DeepSeek" }), provider: h("select", {}, meta.providers.map((x) => h("option", {}, x))), model: h("input", { placeholder: "deepseek-chat" }), endpoint: h("input", { placeholder: "Optional (required for custom/local)" }), key: h("input", { type: "password", autocomplete: "off", placeholder: "API key" }) };
+  let editing = null;
+  const load = () => guard(out, async () => {
+    const list = await api("/settings/llm");
+    tbl.replaceChildren(h("div", { class: "card tw" }, h("table", {}, h("thead", {}, h("tr", {}, ["Name", "Provider", "Model", "Endpoint", "Key", ""].map((x) => h("th", {}, x)))),
+      h("tbody", {}, list.map((x) => h("tr", {}, h("td", {}, x.name, x.is_default ? h("span", { class: "pill s-ok", style: "margin-left:.4rem" }, "default") : null), h("td", {}, x.provider), h("td", {}, x.model), h("td", {}, x.endpoint || "(default)"), h("td", {}, x.api_key_masked || "-"),
+        h("td", {}, h("button", { class: "g", onclick: async (e) => { e.target.textContent = "Testing..."; const r = await api(`/settings/llm/${x.id}/test`, { method: "POST" }); e.target.textContent = "Test"; flash(out, r.ok ? `Connected (${r.model})` : r.message, r.ok); } }, "Test"),
+          h("button", { class: "g", onclick: () => { editing = x.id; f.name.value = x.name; f.provider.value = x.provider; f.model.value = x.model; f.endpoint.value = x.endpoint; f.key.value = ""; scrollTo(0, 0); } }, "Edit"),
+          x.is_default ? null : h("button", { class: "g", onclick: async () => { await api(`/settings/llm/${x.id}/default`, { method: "POST" }); load(); } }, "Make default"),
+          h("button", { class: "g d", onclick: async () => { if (confirm("Delete provider?")) { await api("/settings/llm/" + x.id, { method: "DELETE" }); load(); } } }, "Delete"))))))));
+  });
+  const save = () => guard(out, async () => {
+    const body = { name: f.name.value, provider: f.provider.value, model: f.model.value, endpoint: f.endpoint.value, api_key: f.key.value };
+    await api(editing ? "/settings/llm/" + editing : "/settings/llm", { method: editing ? "PUT" : "POST", body }); editing = null; f.key.value = ""; f.name.value = ""; load(); flash(out, "Saved", true);
+  });
+  main.append(h("h2", {}, "AI providers"), h("div", { class: "card" }, h("div", { class: "row" }, h("div", {}, h("label", {}, "Name"), f.name), h("div", {}, h("label", {}, "Provider"), f.provider), h("div", {}, h("label", {}, "Model"), f.model), h("div", {}, h("label", {}, "API endpoint"), f.endpoint)),
+    h("label", {}, "API key"), f.key, h("div", { class: "hint" }, "Stored encrypted on the server. When editing, leave blank to keep the saved key."), h("p", {}, h("button", { class: "b", onclick: save }, "Save provider"))), out, tbl);
+  load();
+}
+/* ---------------- social ---------------- */
+async function social(main) {
+  const out = h("div"), tbl = h("div"), spec = await api("/settings/social/platforms");
+  const plat = h("select", {}, Object.keys(spec).map((x) => h("option", {}, x))), label = h("input", { placeholder: "Label (optional)" }), fields = h("div"), info = h("div", { class: "hint" });
+  let editing = null, inputs = {};
+  const draw = () => { const s = spec[plat.value]; inputs = {}; fields.replaceChildren(...[...s.required, ...s.optional].map((k) => { const i = h("input", { type: "password", autocomplete: "off", placeholder: s.required.includes(k) ? "required" : "optional" }); inputs[k] = i; return h("div", {}, h("label", {}, k), i); }));
+    info.replaceChildren(h("div", {}, "Permissions: " + s.permissions), h("div", {}, "Media: " + s.media), s.notes ? h("div", {}, s.notes) : null); };
+  plat.addEventListener("change", draw); draw();
+  const load = () => guard(out, async () => {
+    const list = await api("/settings/social");
+    tbl.replaceChildren(h("div", { class: "card tw" }, h("table", {}, h("thead", {}, h("tr", {}, ["Platform", "Label", "Account id (for workflows)", "Configured", ""].map((x) => h("th", {}, x)))),
+      h("tbody", {}, list.map((x) => h("tr", {}, h("td", {}, x.platform), h("td", {}, x.label), h("td", {}, h("code", {}, x.id)), h("td", {}, x.configured_fields.join(", ")),
+        h("td", {}, h("button", { class: "g", onclick: async (e) => { e.target.textContent = "Testing..."; const r = await api(`/settings/social/${x.id}/test`, { method: "POST" }); e.target.textContent = "Test"; flash(out, r.ok ? "Connected: " + (r.account || "ok") : r.message, r.ok); } }, "Test connection"),
+          h("button", { class: "g", onclick: () => { editing = x.id; plat.value = x.platform; draw(); label.value = x.label; scrollTo(0, 0); flash(out, "Editing: blank fields keep their saved values", true); } }, "Edit"),
+          h("button", { class: "g d", onclick: async () => { if (confirm("Delete account?")) { await api("/settings/social/" + x.id, { method: "DELETE" }); load(); } } }, "Delete"))))))));
+  });
+  const save = () => guard(out, async () => {
+    const secrets = Object.fromEntries(Object.entries(inputs).map(([k, i]) => [k, i.value]).filter(([, v]) => v));
+    await api(editing ? "/settings/social/" + editing : "/settings/social", { method: editing ? "PUT" : "POST", body: { platform: plat.value, name: label.value, secrets } }); editing = null; draw(); load(); flash(out, "Saved", true);
+  });
+  main.append(h("h2", {}, "Social accounts"), h("div", { class: "card" }, h("div", { class: "row" }, h("div", {}, h("label", {}, "Platform"), plat), h("div", {}, h("label", {}, "Label"), label)), fields, info, h("p", {}, h("button", { class: "b", onclick: save }, "Save account"))), out, tbl);
+  load();
+}
+/* ---------------- GitHub & Cloudflare ---------------- */
+async function integrations(main) {
+  const out = h("div"), gh = await api("/settings/github"), cf = await api("/settings/cloudflare");
+  const g = { owner: h("input", { value: gh.owner || "" }), repo: h("input", { value: gh.repo || "" }), workflow: h("input", { value: gh.workflow || "remote-job.yml" }), ref: h("input", { value: gh.ref || "main" }), token: h("input", { type: "password", autocomplete: "off", placeholder: gh.token_masked || "fine-grained token (Actions: read & write)" }) };
+  const c = { account_id: h("input", { value: cf.account_id || "" }), worker_url: h("input", { value: cf.worker_url || "", placeholder: "https://suite-control-plane.<you>.workers.dev" }), d1_database_id: h("input", { value: cf.d1_database_id || "" }), r2_bucket: h("input", { value: cf.r2_bucket || "" }),
+    api_token: h("input", { type: "password", autocomplete: "off", placeholder: cf.api_token_masked || "Cloudflare API token" }), shared_secret: h("input", { type: "password", autocomplete: "off", placeholder: cf.shared_secret_masked || "same as CALLBACK_SECRET" }) };
+  const grid = (o) => h("div", { class: "row" }, Object.entries(o).map(([k, i]) => h("div", {}, h("label", {}, k), i)));
+  const vals = (o) => Object.fromEntries(Object.entries(o).map(([k, i]) => [k, i.value]));
+  main.append(h("h2", {}, "GitHub Actions"), h("div", { class: "card" }, grid(g), h("p", {}, h("button", { class: "b", onclick: () => guard(out, async () => { await api("/settings/github", { method: "PUT", body: vals(g) }); g.token.value = ""; flash(out, "GitHub settings saved", true); }) }, "Save"), " ",
+    h("button", { class: "g", onclick: () => guard(out, async () => { const r = await api("/settings/github/test", { method: "POST" }); flash(out, r.ok ? `Workflow found: ${r.workflow} (${r.state})` : r.message, r.ok); }) }, "Test connection"))),
+    h("h2", {}, "Cloudflare"), h("div", { class: "card" }, grid(c), h("p", {}, h("button", { class: "b", onclick: () => guard(out, async () => { await api("/settings/cloudflare", { method: "PUT", body: vals(c) }); c.api_token.value = ""; c.shared_secret.value = ""; flash(out, "Cloudflare settings saved", true); }) }, "Save"), " ",
+    h("button", { class: "g", onclick: () => guard(out, async () => { const r = await api("/settings/cloudflare/test", { method: "POST" }); flash(out, JSON.stringify(r.checks), r.ok); }) }, "Test connection"))), out);
+}
+/* ---------------- settings ---------------- */
+async function settingsView(main) {
+  const out = h("div"), s = await api("/settings/app");
+  const conc = h("input", { type: "number", min: 1, max: 100, value: s.max_concurrency }), tz = h("input", { value: s.default_timezone });
+  main.append(h("h2", {}, "Settings"), h("div", { class: "card" }, h("div", { class: "row" }, h("div", {}, h("label", {}, "Maximum concurrent jobs (1-100)"), conc, h("div", { class: "hint" }, "Enforced by the queue backend; applies immediately, no restart.")), h("div", {}, h("label", {}, "Default timezone"), tz)),
+    h("p", {}, h("button", { class: "b", onclick: () => guard(out, async () => { await api("/settings/app", { method: "PUT", body: { max_concurrency: +conc.value, default_timezone: tz.value } }); flash(out, "Saved", true); }) }, "Save"))), out);
+}
+render();
+</script></body></html>

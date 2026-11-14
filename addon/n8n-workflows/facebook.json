@@ -1,0 +1,365 @@
+{
+  "name": "Suite - AI post to facebook",
+  "nodes": [
+    {
+      "id": "25577727-ac7c-4019-ae29-0a6c9e0d91f5",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "9633af0c-b014-486b-8066-7b181afc82a5",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "disabled": true
+    },
+    {
+      "id": "3fd1f1c9-c88c-4058-a6d4-5134af38c316",
+      "name": "Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        100
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ccae1a65-81e5-468c-95d7-07764da411c1",
+              "name": "suite_url",
+              "value": "http://suite:8080",
+              "type": "string"
+            },
+            {
+              "id": "70791cfd-3878-4c0c-9aef-7ff3bddbefe0",
+              "name": "account_id",
+              "value": "PASTE_SOCIAL_ACCOUNT_ID",
+              "type": "string"
+            },
+            {
+              "id": "71f5cf1e-2cec-41b9-a1e6-73c74425a557",
+              "name": "provider_id",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "11cad70e-c08d-43c6-84b4-5d30e3967911",
+              "name": "model",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "9e1c2f98-463f-4181-bde9-e985abb4162c",
+              "name": "topic",
+              "value": "Tips for growing a small business online",
+              "type": "string"
+            },
+            {
+              "id": "83804c5d-6c5f-43aa-8013-f3436519cba1",
+              "name": "tone",
+              "value": "friendly and concise",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "5a485aa5-df4f-4ef5-b766-2f92ac32f046",
+      "name": "Generate content (LLM)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.suite_url }}/api/n8n/generate",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ prompt: \"Write a \" + $json.tone + \" \" + \"facebook\" + \" post about: \" + $json.topic + \". Output only the post text.\", provider_id: $json.provider_id, model: $json.model, system: \"You are a social media copywriter.\" }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Suite Add-on Token"
+        }
+      }
+    },
+    {
+      "id": "5ae28c75-f6e9-4e63-9e22-287df1a9a42d",
+      "name": "Format for facebook",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        100
+      ],
+      "parameters": {
+        "jsCode": "const LIMIT = 63000;\nlet text = String($input.first().json.text || '').trim().replace(/\\n{3,}/g, '\\n\\n');\nif (text.length > LIMIT) text = text.slice(0, LIMIT - 1).trimEnd() + '\\u2026';\nconst title = text.split('\\n')[0].slice(0, 100);\nreturn [{ json: { text, title, provider: $input.first().json.provider, model: $input.first().json.model } }];"
+      }
+    },
+    {
+      "id": "b2e11395-ad6b-4991-b46c-b597da6804b0",
+      "name": "Queue publish job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parameters').item.json.suite_url }}/api/n8n/jobs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ task: \"social_publish\", workflow: \"n8n:facebook\", payload: Object.assign({ account_id: $('Parameters').item.json.account_id, text: $json.text, raw: true }, {}) }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Suite Add-on Token"
+        }
+      }
+    },
+    {
+      "id": "59cd4501-61d7-4349-b58a-204b12da18fe",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        100
+      ],
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "b1ae6a27-f062-48e4-bc61-8c96ae3234e4",
+      "name": "Get job status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        100
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Parameters').item.json.suite_url }}/api/n8n/jobs/{{ $('Queue publish job').item.json.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Suite Add-on Token"
+        }
+      }
+    },
+    {
+      "id": "90dd3bcb-5276-4d34-ba21-c872df9f2f5c",
+      "name": "Finished?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5b555b6d-1d46-40bd-9276-fab1e47e28c7",
+              "leftValue": "={{ ['completed','failed','cancelled'].includes($json.status) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "820b49e7-9036-4001-87ba-772b2f73d280",
+      "name": "Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parameters": {
+      "main": [
+        [
+          {
+            "node": "Generate content (LLM)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate content (LLM)": {
+      "main": [
+        [
+          {
+            "node": "Format for facebook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format for facebook": {
+      "main": [
+        [
+          {
+            "node": "Queue publish job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue publish job": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Get job status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get job status": {
+      "main": [
+        [
+          {
+            "node": "Finished?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finished?": {
+      "main": [
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Africa/Lagos",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "pinData": {},
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

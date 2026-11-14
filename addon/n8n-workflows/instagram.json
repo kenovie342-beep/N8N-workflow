@@ -1,0 +1,371 @@
+{
+  "name": "Suite - AI post to instagram",
+  "nodes": [
+    {
+      "id": "7cf993f2-6fef-4ffe-9438-87c41d0fe5be",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "f5874a2c-c833-40f6-bc48-b1426f33113f",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "disabled": true
+    },
+    {
+      "id": "3b63bd8b-e4f0-4bce-b872-e094a5912acd",
+      "name": "Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        100
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e7d45f97-3eaa-498a-9b65-17732a514811",
+              "name": "suite_url",
+              "value": "http://suite:8080",
+              "type": "string"
+            },
+            {
+              "id": "8355d6d4-17b6-4443-8c67-02c597ef27b4",
+              "name": "account_id",
+              "value": "PASTE_SOCIAL_ACCOUNT_ID",
+              "type": "string"
+            },
+            {
+              "id": "0411c670-567f-4e0f-a492-c37409804acc",
+              "name": "provider_id",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "49b566d9-3ca5-420f-bf1f-b4b6d17a772e",
+              "name": "model",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "72e2cbdd-68ff-4102-a246-72e0927324a7",
+              "name": "topic",
+              "value": "Tips for growing a small business online",
+              "type": "string"
+            },
+            {
+              "id": "ba27dcdd-7d53-4e8e-b414-9f4aa8800e2b",
+              "name": "tone",
+              "value": "friendly and concise",
+              "type": "string"
+            },
+            {
+              "id": "b3289c55-ba6c-4b34-8a29-0b9916750f39",
+              "name": "media_url",
+              "value": "https://example.com/image.jpg",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ed1b232b-536d-4135-b70a-a751cc977e46",
+      "name": "Generate content (LLM)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.suite_url }}/api/n8n/generate",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ prompt: \"Write a \" + $json.tone + \" \" + \"instagram\" + \" post about: \" + $json.topic + \". Output only the post text.\", provider_id: $json.provider_id, model: $json.model, system: \"You are a social media copywriter.\" }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Suite Add-on Token"
+        }
+      }
+    },
+    {
+      "id": "7ff7d9ea-84e3-4331-aab8-911399b1b033",
+      "name": "Format for instagram",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        100
+      ],
+      "parameters": {
+        "jsCode": "const LIMIT = 2200;\nlet text = String($input.first().json.text || '').trim().replace(/\\n{3,}/g, '\\n\\n');\nif (text.length > LIMIT) text = text.slice(0, LIMIT - 1).trimEnd() + '\\u2026';\nconst title = text.split('\\n')[0].slice(0, 100);\nreturn [{ json: { text, title, provider: $input.first().json.provider, model: $input.first().json.model } }];"
+      }
+    },
+    {
+      "id": "dcb855e1-e491-4d79-a26b-be9f2421795f",
+      "name": "Queue publish job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parameters').item.json.suite_url }}/api/n8n/jobs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ task: \"social_publish\", workflow: \"n8n:instagram\", payload: Object.assign({ account_id: $('Parameters').item.json.account_id, text: $json.text, raw: true }, { media_url: $('Parameters').item.json.media_url }) }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Suite Add-on Token"
+        }
+      }
+    },
+    {
+      "id": "3231e2de-d643-4b52-97d8-7eb413759232",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        100
+      ],
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "8c3402b2-7f71-48ca-aebd-d4d034be5361",
+      "name": "Get job status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        100
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Parameters').item.json.suite_url }}/api/n8n/jobs/{{ $('Queue publish job').item.json.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Suite Add-on Token"
+        }
+      }
+    },
+    {
+      "id": "38b54661-4c9f-419c-8436-8722de9fe3f3",
+      "name": "Finished?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e5b0a986-a1f8-4ba5-b0e3-33d4c293fa0a",
+              "leftValue": "={{ ['completed','failed','cancelled'].includes($json.status) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "a53ef441-5506-4d29-9c4f-27bcb99e8f9e",
+      "name": "Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parameters": {
+      "main": [
+        [
+          {
+            "node": "Generate content (LLM)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate content (LLM)": {
+      "main": [
+        [
+          {
+            "node": "Format for instagram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format for instagram": {
+      "main": [
+        [
+          {
+            "node": "Queue publish job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue publish job": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Get job status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get job status": {
+      "main": [
+        [
+          {
+            "node": "Finished?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finished?": {
+      "main": [
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Africa/Lagos",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "pinData": {},
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

@@ -1,0 +1,42 @@
+name: Suite remote job
+# Copy to  .github/workflows/remote-job.yml  in the repository named in Settings -> GitHub.
+# Copy suite_runner.py to  .github/scripts/suite_runner.py
+run-name: suite-job ${{ inputs.job_id }}   # the add-on finds/cancels runs by this title
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Job id (the payload is fetched securely from the add-on, never passed here)
+        required: true
+        type: string
+
+# One run per job id. This only prevents the SAME job running twice; the real
+# max-concurrency limit is enforced by the add-on's queue, not by GitHub.
+concurrency:
+  group: suite-job-${{ inputs.job_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run job
+        env:
+          JOB_ID: ${{ inputs.job_id }}
+          SUITE_URL: ${{ secrets.SUITE_URL }}
+          CALLBACK_SECRET: ${{ secrets.CALLBACK_SECRET }}
+          CALLBACK_URL: ${{ secrets.CALLBACK_URL }}   # optional: e.g. https://<worker>.workers.dev/callback
+        run: |
+          echo "::add-mask::$CALLBACK_SECRET"
+          python .github/scripts/suite_runner.py

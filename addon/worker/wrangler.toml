@@ -1,0 +1,20 @@
+name = "suite-control-plane"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "suite-control-plane"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"   # `wrangler d1 create suite-control-plane`
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "suite-media"                          # `wrangler r2 bucket create suite-media`
+
+# Set secrets with `wrangler secret put <NAME>` (never commit them):
+#   CALLBACK_SECRET     same value as the add-on's CALLBACK_SECRET
+#   ORIGIN_URL          public https URL of the add-on, e.g. https://suite.example.com
+#   URL_SIGNING_SECRET  (optional) separate secret for R2 signed URLs

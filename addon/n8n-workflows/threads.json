@@ -1,0 +1,365 @@
+{
+  "name": "Suite - AI post to threads",
+  "nodes": [
+    {
+      "id": "7382c679-8491-4569-a531-93ead22c6043",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "385d92af-b6e9-4be6-a567-56e7bf294b06",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "disabled": true
+    },
+    {
+      "id": "10fa527f-a469-42fb-b4a2-32ed76b33afa",
+      "name": "Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        100
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f04ee1a8-96df-4cff-91e7-57fb620fb3fa",
+              "name": "suite_url",
+              "value": "http://suite:8080",
+              "type": "string"
+            },
+            {
+              "id": "2d207799-8138-41fe-b097-129a8f07e1bf",
+              "name": "account_id",
+              "value": "PASTE_SOCIAL_ACCOUNT_ID",
+              "type": "string"
+            },
+            {
+              "id": "73376245-989e-4d4d-a02a-ff43602e43ff",
+              "name": "provider_id",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "53b32620-dea4-455c-b74b-815e75b358ac",
+              "name": "model",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "b2ca2c69-c439-4637-9da0-e85f424ca7ce",
+              "name": "topic",
+              "value": "Tips for growing a small business online",
+              "type": "string"
+            },
+            {
+              "id": "757014fd-f957-4330-af72-c707b1dedb3f",
+              "name": "tone",
+              "value": "friendly and concise",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "336203af-6e52-426e-9a01-11fe4dbd3196",
+      "name": "Generate content (LLM)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.suite_url }}/api/n8n/generate",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ prompt: \"Write a \" + $json.tone + \" \" + \"threads\" + \" post about: \" + $json.topic + \". Output only the post text.\", provider_id: $json.provider_id, model: $json.model, system: \"You are a social media copywriter.\" }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Suite Add-on Token"
+        }
+      }
+    },
+    {
+      "id": "9a338a34-e35a-4ef6-98de-9f0cdb0163aa",
+      "name": "Format for threads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        100
+      ],
+      "parameters": {
+        "jsCode": "const LIMIT = 500;\nlet text = String($input.first().json.text || '').trim().replace(/\\n{3,}/g, '\\n\\n');\nif (text.length > LIMIT) text = text.slice(0, LIMIT - 1).trimEnd() + '\\u2026';\nconst title = text.split('\\n')[0].slice(0, 100);\nreturn [{ json: { text, title, provider: $input.first().json.provider, model: $input.first().json.model } }];"
+      }
+    },
+    {
+      "id": "df08af88-0c98-4f15-a2de-f55b52f01056",
+      "name": "Queue publish job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parameters').item.json.suite_url }}/api/n8n/jobs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ task: \"social_publish\", workflow: \"n8n:threads\", payload: Object.assign({ account_id: $('Parameters').item.json.account_id, text: $json.text, raw: true }, {}) }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Suite Add-on Token"
+        }
+      }
+    },
+    {
+      "id": "8dde5a25-5384-4d21-9c10-65b8159c85b2",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        100
+      ],
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "e5d71c3b-f44d-49c9-932b-1d2489e4ccb3",
+      "name": "Get job status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        100
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Parameters').item.json.suite_url }}/api/n8n/jobs/{{ $('Queue publish job').item.json.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Suite Add-on Token"
+        }
+      }
+    },
+    {
+      "id": "0118f969-635a-4210-bd37-bdb87f97f860",
+      "name": "Finished?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9f79f41d-e8a1-4728-a838-745a27b93cc7",
+              "leftValue": "={{ ['completed','failed','cancelled'].includes($json.status) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e36702a6-d394-41b3-bc9b-1b4f5536723a",
+      "name": "Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parameters": {
+      "main": [
+        [
+          {
+            "node": "Generate content (LLM)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate content (LLM)": {
+      "main": [
+        [
+          {
+            "node": "Format for threads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format for threads": {
+      "main": [
+        [
+          {
+            "node": "Queue publish job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue publish job": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Get job status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get job status": {
+      "main": [
+        [
+          {
+            "node": "Finished?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finished?": {
+      "main": [
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Africa/Lagos",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "pinData": {},
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

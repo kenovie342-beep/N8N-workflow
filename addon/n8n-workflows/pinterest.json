@@ -1,0 +1,371 @@
+{
+  "name": "Suite - AI post to pinterest",
+  "nodes": [
+    {
+      "id": "2895eafc-779a-4276-bc3b-6d8137fb74cf",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "60d3db2f-1f7c-4208-975c-b2b1e15e7591",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "disabled": true
+    },
+    {
+      "id": "8887c180-c2db-447c-907f-b1e259f4c817",
+      "name": "Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        100
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9e38cfad-0a2c-42ee-a7be-717d35cd06a2",
+              "name": "suite_url",
+              "value": "http://suite:8080",
+              "type": "string"
+            },
+            {
+              "id": "26d997e8-b752-4076-a213-eb5a5762fb4f",
+              "name": "account_id",
+              "value": "PASTE_SOCIAL_ACCOUNT_ID",
+              "type": "string"
+            },
+            {
+              "id": "f330d08c-5a67-453c-b513-58e6221eae11",
+              "name": "provider_id",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "aedb898b-bb5a-48d1-a585-e570e393a231",
+              "name": "model",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "e22c4676-7c1d-43db-9fd8-7436b725f209",
+              "name": "topic",
+              "value": "Tips for growing a small business online",
+              "type": "string"
+            },
+            {
+              "id": "b340da18-5b0b-49f3-8fd9-93d706ff3aa7",
+              "name": "tone",
+              "value": "friendly and concise",
+              "type": "string"
+            },
+            {
+              "id": "2dd11307-f6e8-41d7-865c-45807b02b700",
+              "name": "media_url",
+              "value": "https://example.com/image.jpg",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "fbc0fc11-37a5-439c-b4cd-eb2821f5105d",
+      "name": "Generate content (LLM)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.suite_url }}/api/n8n/generate",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ prompt: \"Write a \" + $json.tone + \" \" + \"pinterest\" + \" post about: \" + $json.topic + \". Output only the post text.\", provider_id: $json.provider_id, model: $json.model, system: \"You are a social media copywriter.\" }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Suite Add-on Token"
+        }
+      }
+    },
+    {
+      "id": "21aa7c73-5390-49d2-af65-4d6e41129079",
+      "name": "Format for pinterest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        100
+      ],
+      "parameters": {
+        "jsCode": "const LIMIT = 800;\nlet text = String($input.first().json.text || '').trim().replace(/\\n{3,}/g, '\\n\\n');\nif (text.length > LIMIT) text = text.slice(0, LIMIT - 1).trimEnd() + '\\u2026';\nconst title = text.split('\\n')[0].slice(0, 100);\nreturn [{ json: { text, title, provider: $input.first().json.provider, model: $input.first().json.model } }];"
+      }
+    },
+    {
+      "id": "404a621a-a48e-4126-bd9c-7838edfcec7c",
+      "name": "Queue publish job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        100
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parameters').item.json.suite_url }}/api/n8n/jobs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ task: \"social_publish\", workflow: \"n8n:pinterest\", payload: Object.assign({ account_id: $('Parameters').item.json.account_id, text: $json.text, raw: true }, { media_url: $('Parameters').item.json.media_url, title: $json.title }) }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Suite Add-on Token"
+        }
+      }
+    },
+    {
+      "id": "8d8acf48-a468-4792-9127-082321aae87e",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        100
+      ],
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "92902bc8-16f3-4d60-9cc7-129ca673d020",
+      "name": "Get job status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        100
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Parameters').item.json.suite_url }}/api/n8n/jobs/{{ $('Queue publish job').item.json.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Suite Add-on Token"
+        }
+      }
+    },
+    {
+      "id": "025464a8-1404-4eb3-aec3-73e00ff32464",
+      "name": "Finished?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "25f84209-54da-41b5-a6a3-e303dd6a910c",
+              "leftValue": "={{ ['completed','failed','cancelled'].includes($json.status) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ed669590-7d37-4881-9421-f6a36983d141",
+      "name": "Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parameters": {
+      "main": [
+        [
+          {
+            "node": "Generate content (LLM)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate content (LLM)": {
+      "main": [
+        [
+          {
+            "node": "Format for pinterest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format for pinterest": {
+      "main": [
+        [
+          {
+            "node": "Queue publish job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Queue publish job": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Get job status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get job status": {
+      "main": [
+        [
+          {
+            "node": "Finished?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finished?": {
+      "main": [
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Africa/Lagos",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all"
+  },
+  "pinData": {},
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

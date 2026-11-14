@@ -1,0 +1,13 @@
+[tool.ruff]
+line-length = 140
+target-version = "py312"
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "S102", "S307"]
+ignore = ["E501", "B008", "B904", "E731", "E702", "E701"]
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+check_untyped_defs = false
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::starlette.exceptions.StarletteDeprecationWarning"]
