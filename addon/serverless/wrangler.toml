@@ -1,0 +1,19 @@
+name = "suite"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "suite"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"   # npx wrangler d1 create suite
+migrations_dir = "migrations"
+
+[vars]
+DEFAULT_TIMEZONE = "Africa/Lagos"
+MAX_CONCURRENT_JOBS = "5"
+MAX_JOBS_PER_TICK = "10"
+
+# Secrets (npx wrangler secret put NAME): ADMIN_USERNAME ADMIN_PASSWORD SESSION_SECRET ENCRYPTION_KEY CALLBACK_SECRET N8N_ADDON_API_TOKEN
