@@ -8,6 +8,7 @@ import { getApp, getMaxConcurrency, getTimezone, getWindows, setApp } from "./se
 import { n8nStatus, parseWindow, recordHeartbeat, watchdog } from "./windows.js";
 import { assertTimezone } from "./cron.js";
 import { dashboardResponse } from "./ui.js";
+import { handleSettings, n8nAccounts, n8nGenerate } from "./settingsApi.js";
 
 const SKEW_S = 300;
 
@@ -109,10 +110,14 @@ async function route(req, env, ctx) {
     return json(jobView(j, true));
   }
 
+  if (path === "/api/n8n/generate" && m === "POST") { await requireN8nToken(req, env); return json(await n8nGenerate(db, env, await body(req))); }
+  if (path === "/api/n8n/accounts" && m === "GET") { await requireN8nToken(req, env); return json(await n8nAccounts(db)); }
+
   // ---- everything below needs an admin session
   if (!path.startsWith("/api/")) throw new HttpError(404, "Not found");
   await requireAdmin(req, env);
 
+  if (path.startsWith("/api/settings/") && path !== "/api/settings/app") { const r = await handleSettings(req, env, db, path, m, () => body(req)); if (r) return r; }
   if (path === "/api/stats" && m === "GET") return json(await stats(db, env));
   if (path === "/api/settings/app" && m === "GET") return json({ max_concurrency: await getMaxConcurrency(db, env), default_timezone: await getTimezone(db, env), n8n_windows: await getWindows(db) });
   if (path === "/api/settings/app" && m === "PUT") {
@@ -204,6 +209,11 @@ async function createJob(db, b) {
   if (!USER_TASKS.includes(b.task)) throw new HttpError(400, `Unsupported task. Allowed: ${USER_TASKS.join(", ")}`);
   const payload = b.payload || {};
   if (JSON.stringify(payload).length > 64_000) throw new HttpError(413, "payload too large");
+  if (["social_publish", "ai_publish"].includes(b.task)) {
+    const a = await db.prepare("SELECT 1 AS x FROM settings WHERE id = ? AND kind = 'social'").bind(String(payload.account_id || "")).first();
+    if (!a) throw new HttpError(400, "payload.account_id must reference a saved social account");
+  }
+  if (b.task === "llm_prompt" && !payload.prompt) throw new HttpError(400, "payload.prompt is required");
   const priority = b.priority ?? 5, maxAttempts = b.max_attempts ?? 3;
   if (!Number.isInteger(priority) || priority < 0 || priority > 10) throw new HttpError(400, "priority must be 0-10");
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 10) throw new HttpError(400, "max_attempts must be 1-10");
@@ -253,7 +263,7 @@ export default {
   async fetch(req, env, ctx) {
     try {
       const res = await route(req, env, ctx);
-      if (req.method === "POST" && new URL(req.url).pathname === "/api/jobs") ctx?.waitUntil?.(pump(env, env.DB).catch(() => {}));   // start immediately, don't wait for the next tick
+      if (req.method === "POST" && ["/api/jobs", "/api/n8n/jobs"].includes(new URL(req.url).pathname) && res.status === 200) ctx?.waitUntil?.(pump(env, env.DB).catch(() => {}));   // start immediately, don't wait for the next tick
       res.headers.set("x-content-type-options", "nosniff");
       res.headers.set("x-frame-options", "DENY");
       res.headers.set("referrer-policy", "no-referrer");

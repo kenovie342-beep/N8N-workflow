@@ -3,7 +3,8 @@ import { scrub } from "./crypto.js";
 import { decryptJSON } from "./crypto.js";
 
 const API = "https://api.github.com";
-export class UpstreamError extends Error { constructor(msg, retryable, retryAfter = 0) { super(msg); this.retryable = retryable; this.retryAfter = retryAfter; } }
+import { UpstreamError } from "./http.js";
+export { UpstreamError };
 
 export async function githubConfig(db, env) {
   const row = await db.prepare("SELECT config_json, secret_enc FROM settings WHERE kind = 'github' LIMIT 1").first();

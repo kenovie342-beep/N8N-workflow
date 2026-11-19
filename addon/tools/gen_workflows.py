@@ -35,7 +35,7 @@ def http_node(name, pos, method, url, body=None):
 
 def build(platform: str) -> dict:
     limit = LIMITS[platform]
-    assigns = [("suite_url", "http://suite:8080", "string"), ("account_id", "PASTE_SOCIAL_ACCOUNT_ID", "string"),
+    assigns = [("suite_url", "https://suite.YOUR-SUBDOMAIN.workers.dev", "string"), ("account_id", "PASTE_SOCIAL_ACCOUNT_ID", "string"),
                ("provider_id", "", "string"), ("model", "", "string"),
                ("topic", "Tips for growing a small business online", "string"),
                ("tone", "friendly and concise", "string")] + [(k, v, "string") for k, v in PARAMS.get(platform, [])]

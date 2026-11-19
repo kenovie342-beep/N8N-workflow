@@ -91,7 +91,6 @@ test("cron handler dispatches n8n to GitHub inside a window (mocked GitHub, real
     if (lagosH * 60 + m + 60 > 23 * 60 + 59) return;                         // too close to midnight to build a same-day window
     const end = `${String(Math.floor(endTotal / 60)).padStart(2, "0")}:${String(endTotal % 60).padStart(2, "0")}`;
     await h.req("/api/settings/app", { method: "PUT", body: { n8n_windows: [`${start}-${end}`] } });
-    await h.req("/api/settings/github", { method: "PUT", body: {} }).catch(() => {});
     const cfg = JSON.stringify({ owner: "me", repo: "runner", workflow: "remote-job.yml", n8n_workflow: "n8n-host.yml", ref: "main" });
     const { encryptJSON } = await import("../src/crypto.js");
     await h.db.prepare("INSERT INTO settings (id, kind, name, config_json, secret_enc, created_at, updated_at) VALUES ('g','github','github',?,?,1,1)").bind(cfg, await encryptJSON(SECRETS.ENCRYPTION_KEY, { token: "github_pat_TESTTOKEN0123456789abcdef" })).run();

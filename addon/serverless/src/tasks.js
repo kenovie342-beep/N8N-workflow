@@ -2,10 +2,13 @@
 import { UpstreamError, dispatchJob, githubConfig } from "./github.js";
 import { addLog, claim, complete, fail, recoverExpired } from "./queue.js";
 import { sleep } from "./util.js";
+import { generate } from "./llm.js";
+import * as social from "./social.js";
+import { resolveLLM, resolveSocial } from "./credentials.js";
 
 export class Deferred { constructor(timeoutMs) { this.timeoutMs = timeoutMs; } }
-export const USER_TASKS = ["noop", "sleep", "github_job"];
-export const REGISTRY = {};                       // stage 2 registers llm_prompt / social_publish / ai_publish here
+export const USER_TASKS = ["noop", "sleep", "github_job", "llm_prompt", "social_publish", "ai_publish"];
+export const REGISTRY = {};
 
 const BUILTIN = {
   async noop() { return { ok: true }; },
@@ -18,12 +21,35 @@ const BUILTIN = {
     if (payload.fail) throw new Error(String(payload.fail));
     return { slept_ms: payload.ms ?? 100, peak_in_isolate: peakSeen };
   },
+  async llm_prompt(payload, ctx) {
+    const cfg = await resolveLLM(ctx.db, ctx.env, payload.provider_id, payload.model);
+    await addLog(ctx.db, ctx.jobId, `LLM request via ${cfg.provider}/${cfg.model}`);
+    return { text: await generate(cfg, payload.prompt, { system: payload.system || "", maxTokens: Number(payload.max_tokens || 1024) }), provider: cfg.provider, model: cfg.model };
+  },
+  async social_publish(payload, ctx) { return publishPayload(payload, ctx); },
+  async ai_publish(payload, ctx) {
+    const acc = await resolveSocial(ctx.db, ctx.env, payload.account_id), cfg = await resolveLLM(ctx.db, ctx.env, payload.provider_id, payload.model);
+    await addLog(ctx.db, ctx.jobId, `Generating content via ${cfg.provider}/${cfg.model}`);
+    const text = await generate(cfg, payload.prompt, { system: `You write social media posts for ${acc.platform}. Output ONLY the post text, max ${social.LIMITS[acc.platform] || 2000} characters, no preamble.`, maxTokens: 800 });
+    return { ...(await publishPayload({ ...payload, text }, ctx)), generated_text: text };
+  },
   async github_job(payload, ctx) {
     await dispatchJob(await githubConfig(ctx.db, ctx.env), ctx.jobId);
     await addLog(ctx.db, ctx.jobId, "Dispatched to GitHub Actions; waiting for signed callback");
     return new Deferred(Number(ctx.env.GITHUB_JOB_TIMEOUT_SECONDS || 1800) * 1000);
   },
 };
+
+async function publishPayload(payload, ctx) {
+  const acc = await resolveSocial(ctx.db, ctx.env, payload.account_id);
+  const missing = social.missingFields(acc.platform, acc.creds);
+  if (missing.length) throw Object.assign(new Error(`Missing credential fields: ${missing.join(", ")}`), { permanent: true });
+  const data = payload.raw ? { ...payload } : { ...payload, ...social.formatText(acc.platform, payload.text, payload.title) };
+  await addLog(ctx.db, ctx.jobId, `Publishing to ${acc.platform}`);
+  const res = await social.publishTo(acc.platform, acc.creds, acc.cfg, data);
+  await addLog(ctx.db, ctx.jobId, `Published to ${acc.platform}: ${res.id}`);
+  return { status: "published", platform: acc.platform, ...res };
+}
 
 async function runOne(env, db, job) {
   const ctx = { db, env, jobId: job.id, attempts: job.attempts };
